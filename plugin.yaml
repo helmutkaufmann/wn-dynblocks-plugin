@@ -1,0 +1,5 @@
+plugin:
+    name: 'Dyn Blocks'
+    description: 'Erlaubt dynamisches Rendern beliebiger CMS-Komponenten in Static Pages .block via Twig-Tag.'
+    author: Mercator
+    icon: oc-icon-puzzle-piece
