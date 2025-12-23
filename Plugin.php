@@ -2,7 +2,6 @@
 
 use System\Classes\PluginBase;
 use Cms\Classes\Controller;
-use Request;
 use Session;
 
 class Plugin extends PluginBase
@@ -21,16 +20,27 @@ class Plugin extends PluginBase
     {
         return [
             'functions' => [
+                // Render + output HTML
                 'dynComponentRender' => function ($name, $props = [], $alias = null) {
-                    return self::renderDynamicComponent((string) $name, (array) $props, $alias ? (string) $alias : null);
+                    return self::renderDynamicComponent(
+                        (string) $name,
+                        (array) $props,
+                        $alias ? (string) $alias : null
+                    );
                 },
 
+                // Create instance (no output)
                 'dynComponent' => function ($name, $props = [], $alias = null) {
-                    return self::makeDynamicComponent((string) $name, (array) $props, $alias ? (string) $alias : null);
+                    return self::makeDynamicComponent(
+                        (string) $name,
+                        (array) $props,
+                        $alias ? (string) $alias : null
+                    );
                 },
 
+                // Read controller/page vars set by components
                 'dynComponentPageVars' => function ($key, $default = null) {
-                    $controller = Controller::getController() ?: Controller::getActive();
+                    $controller = Controller::getController();
                     if (!$controller) {
                         return $default;
                     }
@@ -41,15 +51,18 @@ class Plugin extends PluginBase
         ];
     }
 
+
+    public function register()
+    {
+        $this->app->extend('twig.environment.cms', function ($twig, $app) {
+            $twig->addTokenParser(new \Mercator\DynBlocks\Classes\Twig\DynComponentTokenParser());
+            return $twig;
+        });
+    }
+    
     public function boot()
     {
-        // Optional Twig tag {% dyncomponent 'alias' key=value %}
-        \Event::listen('cms.twig.extend', function ($twig) {
-            if (class_exists(\Mercator\DynBlocks\Classes\Twig\DynComponentTokenParser::class)) {
-                $twig->addTokenParser(new \Mercator\DynBlocks\Classes\Twig\DynComponentTokenParser());
-            }
-        });
-
+        
         // REQUIRED for AJAX: attach dynamic component before handler dispatch
         \Event::listen('cms.ajax.beforeRunHandler', function ($controller, $handler) {
             if (!$handler || !str_contains($handler, '::')) {
@@ -75,13 +88,19 @@ class Plugin extends PluginBase
                 return;
             }
 
-            self::attachComponentToController($controller, $name, $props, $alias);
+            // Use the controller instance provided by Winter (do not rely on any global controller accessor)
+            self::makeDynamicComponent($name, $props, $alias, $controller);
         });
     }
 
-    public static function makeDynamicComponent(string $name, array $props = [], ?string $alias = null)
+    /**
+     * Create (or return) a component instance on a given controller.
+     * - During normal rendering, $controller can be omitted.
+     * - During AJAX pre-dispatch, pass the $controller from cms.ajax.beforeRunHandler.
+     */
+    public static function makeDynamicComponent(string $name, array $props = [], ?string $alias = null, $controller = null)
     {
-        $controller = Controller::getController() ?: Controller::getActive();
+        $controller = $controller ?: Controller::getController();
         if (!$controller) {
             return null;
         }
@@ -124,7 +143,7 @@ class Plugin extends PluginBase
 
     public static function renderDynamicComponent(string $name, array $props = [], ?string $alias = null): string
     {
-        $controller = Controller::getController() ?: Controller::getActive();
+        $controller = Controller::getController();
         if (!$controller) {
             return '';
         }
@@ -134,7 +153,7 @@ class Plugin extends PluginBase
 
         $alias = $alias ?: 'dyn_' . substr(md5($name . json_encode($props) . microtime(true)), 0, 10);
 
-        $cmp = self::makeDynamicComponent($name, $props, $alias);
+        $cmp = self::makeDynamicComponent($name, $props, $alias, $controller);
         if (!$cmp) {
             return $failLoud ? self::failHtml("Could not create component: {$name}") : '';
         }
@@ -160,35 +179,5 @@ class Plugin extends PluginBase
             'props' => $props,
         ];
         Session::put('mercator.dynblocks.components', $all);
-    }
-
-    public static function attachComponentToController($controller, string $name, array $props, string $alias)
-    {
-        $cfg = \Config::get('mercator.dynblocks::dynblocks', []);
-        $staticOnly = (bool)($cfg['static_pages_only'] ?? true);
-
-        if ($staticOnly && !$controller->findComponentByName('staticPage')) {
-            return null;
-        }
-
-        $class = \Mercator\DynBlocks\Classes\Registry::resolveComponentClass($name);
-        if (!$class) {
-            return null;
-        }
-
-        if (!\Mercator\DynBlocks\Classes\Registry::isAllowed($name, $class)) {
-            return null;
-        }
-
-        $cmp = $controller->findComponentByName($alias);
-        if (!$cmp) {
-            $cmp = $controller->addComponent($class, $alias, $props);
-        }
-
-        if (method_exists($cmp, 'init')) {
-            $cmp->init();
-        }
-
-        return $cmp;
     }
 }

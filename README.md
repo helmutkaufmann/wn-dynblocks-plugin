@@ -42,7 +42,7 @@ php artisan cache:clear
 Render the component directly inside a `.block`:
 
 ```twig
-{% dyncomponent 'blogPosts' postsPerPage=10 postPage='blog/post' %}
+{% dynComponent 'blogPosts' postsPerPage=10 postPage='blog/post' %}
 ```
 
 The tag supports `key=value` properties (Twig expressions are allowed).
